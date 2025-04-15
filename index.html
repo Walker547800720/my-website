@@ -23,13 +23,13 @@
     }
 
     header {
-      background-color: rgba(255, 255, 255, 0.8);
-      padding: 40px;
+      background-color: rgba(255, 255, 255, 0.85);
+      padding: 40px 20px;
       border-radius: 15px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.2);
       margin-bottom: 30px;
       text-align: center;
-      width: 90%;
+      width: 100%;
       max-width: 800px;
     }
 
@@ -45,6 +45,7 @@
     }
 
     img {
+      width: 100%;
       max-width: 300px;
       margin: 30px 0;
       border-radius: 15px;
@@ -55,11 +56,12 @@
       display: inline-block;
       background-color: #4e54c8;
       color: white;
-      padding: 12px 25px;
+      padding: 14px 28px;
       border-radius: 30px;
       text-decoration: none;
       font-size: 1em;
       transition: background-color 0.3s;
+      margin: 10px 0;
     }
 
     a.button:hover {
@@ -71,6 +73,22 @@
       font-size: 0.9em;
       color: #777;
       padding: 10px;
+      text-align: center;
+    }
+
+    @media screen and (max-width: 500px) {
+      header h1 {
+        font-size: 1.8em;
+      }
+
+      header p {
+        font-size: 1em;
+      }
+
+      a.button {
+        padding: 12px 22px;
+        font-size: 0.95em;
+      }
     }
   </style>
 </head>
@@ -78,12 +96,13 @@
 
   <header>
     <h1>你好，我是张鎏屹！</h1>
-    <p>这是我的个人网站，欢迎来访！</p >
+    <p>这是我的个人网站，欢迎来访！</p>
   </header>
 
-  < img src="https://picsum.photos/300" alt="随机展示图">
+  <img src="https://picsum.photos/300" alt="展示图">
 
-  <a class="button" href=" " target="_blank">进入我的博客</a >
+  <a class="button" href="https://www.example.com" target="_blank">进入我的博客</a>
+  <a class="button" href="snake.html">开始玩小游戏（贪吃蛇）</a>
 
   <footer>
     © 2025 Zhangliuyi. All rights reserved.
@@ -91,4 +110,3 @@
 
 </body>
 </html>
-
