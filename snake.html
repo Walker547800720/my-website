@@ -26,30 +26,44 @@
       margin-top: 20px;
       text-decoration: none;
     }
+
+    /* 调整按钮的样式 */
     .controls {
       display: flex;
+      flex-direction: column;
       justify-content: center;
+      align-items: center;
       margin-top: 20px;
     }
+
+    .row {
+      display: flex;
+      justify-content: center;
+    }
+
     .button {
       background-color: #4CAF50;
       color: white;
-      width: 50px;
-      height: 50px;
-      border-radius: 25px;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
       display: flex;
       justify-content: center;
       align-items: center;
-      margin: 5px;
+      margin: 10px;
       cursor: pointer;
-      font-size: 20px;
+      font-size: 30px;
       user-select: none;
+      transition: background-color 0.2s ease;
     }
-    .up, .down {
-      margin-top: 10px;
+
+    /* 按钮按下的反馈效果 */
+    .button:active {
+      background-color: #3e8e41;
     }
-    .left, .right {
-      margin-left: 10px;
+
+    .row button {
+      margin: 10px;
     }
   </style>
 </head>
@@ -58,15 +72,18 @@
   <canvas id="game" width="400" height="400"></canvas>
   <a href="index.html">返回主页</a>
 
+  <!-- 上下左右按钮 -->
   <div class="controls">
-    <div class="button up" onclick="changeDirection('UP')">↑</div>
-  </div>
-  <div class="controls">
-    <div class="button left" onclick="changeDirection('LEFT')">←</div>
-    <div class="button right" onclick="changeDirection('RIGHT')">→</div>
-  </div>
-  <div class="controls">
-    <div class="button down" onclick="changeDirection('DOWN')">↓</div>
+    <div class="row">
+      <div class="button" onclick="changeDirection('UP')">↑</div>
+    </div>
+    <div class="row">
+      <div class="button" onclick="changeDirection('LEFT')">←</div>
+      <div class="button" onclick="changeDirection('RIGHT')">→</div>
+    </div>
+    <div class="row">
+      <div class="button" onclick="changeDirection('DOWN')">↓</div>
+    </div>
   </div>
 
   <script>
