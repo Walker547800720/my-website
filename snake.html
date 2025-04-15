@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>贪吃蛇小游戏</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
       background-color: #111;
@@ -18,6 +19,7 @@
     canvas {
       border: 2px solid #fff;
       background-color: black;
+      touch-action: none; /* 防止触摸屏上的默认操作 */
     }
     a {
       color: #4CAF50;
@@ -73,7 +75,7 @@
 
     function draw() {
       ctx.fillStyle = "black";
-      ctx.fillRect(0, 0, 400, 400);
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       for (let i = 0; i < snake.length; i++) {
         ctx.fillStyle = i == 0 ? "lime" : "white";
@@ -104,7 +106,7 @@
       const newHead = { x: snakeX, y: snakeY };
 
       if (
-        snakeX < 0 || snakeX >= 400 || snakeY < 0 || snakeY >= 400 ||
+        snakeX < 0 || snakeX >= canvas.width || snakeY < 0 || snakeY >= canvas.height ||
         collision(newHead, snake)
       ) {
         clearInterval(game);
