@@ -136,6 +136,12 @@ def render_dashboard(session):
             st.success("当前无温度或维护预警")
         for alarm in alarms:
             st.warning(f'{alarm["alarm_type"]} · {alarm["level"]}：{alarm["content"]}')
+        if device["status"] == "故障":
+            st.error("设备处于故障状态。严重温度预警会自动登记温度异常故障，请先到故障台账处理；温度未恢复时预警仅标记已确认。")
+            if st.button("处理设备故障", key="dashboard_fault", disabled=report["ended"]):
+                navigate("故障台账")
+                st.session_state["fault_tabs"] = "处理故障"
+                st.rerun()
         if st.button("查看预警记录", key="dashboard_alarms"):
             navigate("预警中心")
             st.rerun()
@@ -162,6 +168,7 @@ def render_dashboard(session):
         action_names = {"start": "启动/继续", "pause": "暂停讲解", "stop": "停机冷却", "set_mode": "切换场景", "finish": "结束本轮",
                         "maintenance_hold": "维护节点暂停", "lease_pause": "离开页面自动暂停", "cooling_complete": "冷却完成暂停"}
         action_names["duration_pause"] = "连续演示时限暂停"
+        action_names["temperature_hold"] = "严重超温暂停并登记故障"
         if report["events"]:
             events = pd.DataFrame(report["events"])
             events["action"] = events["action"].map(action_names)
@@ -202,6 +209,7 @@ def render_design(db_path):
     st.markdown("### 仿真模型与参数假设")
     st.code(f"每{STEP_SECONDS:g}秒 → {HOURS_PER_STEP:g}个模拟小时；不追补暂停或服务器停机的时间\nT新 = T当前 + {DEMO_RESPONSE:g} × (T目标 − T当前)\n正常目标 = {warning:g} − {offset:g} = {warning-offset:g}℃；异常目标 = {critical:g} + {DEMO_ANOMALY_MARGIN_C:g} = {critical+DEMO_ANOMALY_MARGIN_C:g}℃；停机向{DEMO_AMBIENT_C:g}℃冷却\n下次维护目标 = 完成维护时的累计工时 + {interval:g}h（累计工时不清零）", language=None)
     st.info("以上温度、周期、产量和时间倍率均为课程演示参数，未经真实设备标定。温度阈值与维护参数来自本轮system_config；这是规则维护提醒，不是寿命预测或真实焊机控制。")
+    st.caption("温度达到严重级别时暂停并按同一预警事件自动登记一条温度异常故障；处理后仍超温则确认预警，温度恢复后解除。手动故障入口保留。")
     st.markdown("### 现场验证顺序")
     target = plan["next_maintenance_runtime_hours"]
     st.write(f"零工时开场 → 启动并观察 → {target-lead:g}h提前提醒 → 继续至{target:g}h到期 → 停机登记维护 → 核对新目标与预警解除 → 再运行；然后登记/处理故障，并演示温度异常及恢复。")

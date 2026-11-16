@@ -15,7 +15,7 @@ from database.db import DEFAULT_DB_PATH, get_connection
 from services.equipment_service import get_equipment, get_equipment_statistics, list_equipment
 from services.telemetry_service import get_latest_telemetry, get_telemetry_history
 from services.fault_service import (
-    FAULT_TYPES, FAULT_LEVELS, FAULT_STATUSES, create_fault, list_faults, update_fault_status,
+    FAULT_TYPES, FAULT_LEVELS, FAULT_STATUSES, TEMPERATURE_EVENT_PREFIX, create_fault, list_faults, update_fault_status,
 )
 from services.maintenance_service import complete_maintenance, list_maintenance_plans
 from services.alarm_service import (
@@ -299,6 +299,8 @@ def render_fault_ledger(db_path):
                                     format_func=lambda value: f"#{value} · {by_id[value]['equipment_id']} · "
                                     f"{by_id[value]['fault_type']} · {by_id[value]['status']}")
             selected = by_id[fault_id]
+            if (selected["event_key"] or "").startswith(TEMPERATURE_EVENT_PREFIX):
+                st.info("此故障由严重温度预警自动登记。标为已处理后，温度仍超标则关联预警标记已确认；温度恢复才解除。设备恢复待机，不自动启动。")
             st.markdown("**原始故障描述**")
             st.text(selected["description"])
             st.markdown("**已有处理说明**")

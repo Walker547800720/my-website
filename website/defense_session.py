@@ -17,6 +17,7 @@ from uuid import uuid4
 from database.db import INITIAL_CONFIG, SCHEMA_PATH, get_connection, utc_now
 from services.equipment_service import create_equipment
 from services.telemetry_service import save_telemetry
+from services.fault_service import record_severe_temperature_fault
 from website.simulation_manager import SimulationManager
 
 
@@ -152,10 +153,20 @@ class DefenseSession:
                 return
             before = self.manager.get_report(DEVICE_ID)["last_snapshot"]
             report = self.manager.step(DEVICE_ID)
+            result = report["last_result"]
+            # Also retry a failed linkage on a paused tick; never resubmit telemetry.
+            for alarm in (result or {}).get("alarms") or []:
+                handled = self.info.setdefault("critical_events", [])
+                if alarm["alarm_type"] == "温度预警" and alarm["level"] == "严重" and alarm["event_key"] not in handled:
+                    model.pause()
+                    fault = record_severe_temperature_fault(alarm["id"], db_path=self.db_path)
+                    if fault is not None:
+                        handled.append(alarm["event_key"])
+                        self.info["reason"] = f"严重温度预警：已暂停并自动登记故障#{fault['id']}，请到故障台账处理"
+                        self._event("temperature_hold", alarm_id=alarm["id"], fault_id=fault["id"])
             sample = report["last_snapshot"]
             if sample is None or (before and sample["id"] == before["id"]):
                 return
-            result = report["last_result"]
             if result:
                 plan = result["maintenance"]
                 # Hold each maintenance threshold once per cycle for explanation.

@@ -13,6 +13,7 @@ from services.equipment_service import EquipmentNotFoundError
 FAULT_TYPES = ("温度异常", "设备运行异常")
 FAULT_LEVELS = ("提示", "警告", "严重")
 FAULT_STATUSES = ("未处理", "处理中", "已处理")
+TEMPERATURE_EVENT_PREFIX = "temperature-alarm:"
 
 
 class DuplicateFaultError(ValueError):
@@ -90,6 +91,23 @@ def list_faults(*, db_path=DEFAULT_DB_PATH):
         )]
 
 
+def record_severe_temperature_fault(alarm_id, *, db_path=DEFAULT_DB_PATH):
+    """Create at most one fault per real severe temperature-alarm event."""
+    with get_connection(db_path) as connection:
+        alarm = connection.execute(
+            "SELECT * FROM alarm_records WHERE id=? AND alarm_type=? AND level=? AND status<>?",
+            (alarm_id, "温度预警", "严重", "已解除"),
+        ).fetchone()
+        if alarm is None:
+            return None
+        alarm = dict(alarm)
+    return create_fault(
+        alarm["equipment_id"], "温度异常", alarm["level"],
+        f"温度预警#{alarm['id']}升级为严重，自动登记故障。{alarm['content']}。请排查并记录处理说明。",
+        event_key=TEMPERATURE_EVENT_PREFIX + alarm["event_key"], db_path=db_path,
+    )
+
+
 def get_faults_by_equipment(equipment_id, *, db_path=DEFAULT_DB_PATH):
     """按设备查询；设备不存在抛 EquipmentNotFoundError，无故障返回空列表。"""
     equipment_id = _text(equipment_id, "设备编号")
@@ -136,4 +154,17 @@ def update_fault_status(fault_id, status, handling_note, *, db_path=DEFAULT_DB_P
             "UPDATE equipment SET status = ?, updated_at = ? WHERE equipment_id = ?",
             ("故障" if pending is not None else "已停止", timestamp, fault["equipment_id"]),
         )
+        if status == "已处理" and (fault["event_key"] or "").startswith(TEMPERATURE_EVENT_PREFIX):
+            from services.alarm_service import _temperature_thresholds
+            warning, _ = _temperature_thresholds(connection)
+            temperature = connection.execute(
+                "SELECT temperature_c FROM equipment WHERE equipment_id=?", (fault["equipment_id"],)
+            ).fetchone()[0]
+            cleared = temperature < warning
+            connection.execute(
+                """UPDATE alarm_records SET status=?, resolved_at=?
+                   WHERE event_key=? AND equipment_id=? AND alarm_type=? AND status<>?""",
+                ("已解除" if cleared else "已确认", timestamp if cleared else None,
+                 fault["event_key"][len(TEMPERATURE_EVENT_PREFIX):], fault["equipment_id"], "温度预警", "已解除"),
+            )
         return dict(_get_fault(connection, fault_id))
