@@ -1,4 +1,9 @@
 :root { --ink:#192b43; --muted:#7c899b; --line:#e8edf4; --blue:#356df3; }
+.course-architecture { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin:18px 0; }
+.course-architecture>div { padding:16px 12px; border:1px solid #d9e3f1; border-radius:9px; background:#f3f7fd; min-width:0; }
+.course-architecture strong { display:block; color:#2b4b72; font-size:14px; }
+.course-architecture small { display:block; margin-top:7px; color:#7387a0; font-size:11px; }
+@media(max-width:800px) { .course-architecture { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .stApp { background:#f5f7fb; }
 body, .stApp { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
 [data-testid="stAppViewContainer"] .block-container { max-width:1560px; padding:2.4rem 2.6rem 2rem; }

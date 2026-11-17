@@ -20,6 +20,8 @@ from website.defense_session import DEVICE_ID, create_session, get_session, sess
 from website.simulation_view import control_view
 from website.ui import apply_theme, badge, kpis, section, status_tone
 from simulation.welding_simulator import DEMO_PROFILES, DEMO_RESPONSE, DEMO_AMBIENT_C, DEMO_ANOMALY_MARGIN_C, STEP_SECONDS, HOURS_PER_STEP
+from website.course_requirements import COURSE_VERSION, requirement_records, runtime_guidance
+from website.evidence import evidence_zip
 
 
 DATA_ROOT = Path(os.environ.get("WELDING_DEMO_ROOT", PROJECT_ROOT / "data" / "defense"))
@@ -113,6 +115,10 @@ def render_dashboard(session):
                      on_click=_command, args=(session, "pause"))
         stop.button("停机并冷却", key="defense_stop", width="stretch", disabled=report["ended"] or controls["stop_disabled"],
                     on_click=_command, args=(session, "stop"))
+        normal_target = warning - DEMO_PROFILES[DEVICE_ID][1]
+        st.caption(f"正常运行目标 {normal_target:g}℃，接近目标后温度趋稳；温度异常目标 {critical+DEMO_ANOMALY_MARGIN_C:g}℃。维护提醒独立按累计工时判断。")
+        if not report['ended']:
+            st.info(runtime_guidance(device, report['state'], warning, critical, plan))
         st.caption(report["reason"] + "。暂停时保留设备最后记录；停机后工时和产量不再增加。")
         if report["control_error"]:
             st.error(report["control_error"])
@@ -135,7 +141,7 @@ def render_dashboard(session):
         if not alarms:
             st.success("当前无温度或维护预警")
         for alarm in alarms:
-            st.warning(f'{alarm["alarm_type"]} · {alarm["level"]}：{alarm["content"]}')
+            st.warning(f'{alarm["alarm_type"]} · {alarm["level"]} · {alarm["status"]}：{alarm["content"]}')
         if device["status"] == "故障":
             st.error("设备处于故障状态。严重温度预警会自动登记温度异常故障，请先到故障台账处理；温度未恢复时预警仅标记已确认。")
             if st.button("处理设备故障", key="dashboard_fault", disabled=report["ended"]):
@@ -147,7 +153,7 @@ def render_dashboard(session):
             st.rerun()
     frame = sample_frame(path, report["events"])
     section("本轮运行趋势", "只展示本轮实际快照；横轴为模拟经过时间，包含停机冷却，暂停不推进。")
-    window = st.radio("趋势范围", ["最近40步", "本轮全部"], horizontal=True, key="defense_trend_window")
+    window = st.radio("趋势范围", ["本轮全部", "最近40步"], horizontal=True, key="defense_trend_window")
     plotted = frame.tail(40) if window == "最近40步" else frame
     if len(frame) <= 1:
         st.info("尚未运行。图中仅有25℃、0工时的初始点，点击“开始运行”生成连续曲线。")
@@ -169,26 +175,13 @@ def render_dashboard(session):
                         "maintenance_hold": "维护节点暂停", "lease_pause": "离开页面自动暂停", "cooling_complete": "冷却完成暂停"}
         action_names["duration_pause"] = "连续演示时限暂停"
         action_names["temperature_hold"] = "严重超温暂停并登记故障"
+        action_names['finish_failed'] = '结束失败 已暂停'
         if report["events"]:
             events = pd.DataFrame(report["events"])
-            events["action"] = events["action"].map(action_names)
+            events["action"] = events["action"].map(action_names).fillna(events['action'])
             st.dataframe(events.rename(columns={"action": "操作", "at": "UTC时间", "mode": "场景", "sample_id": "快照编号"}), hide_index=True, width="stretch")
         st.dataframe(frame.rename(columns={"temperature_c": "温度℃", "total_runtime_hours": "累计工时h", "status": "设备状态"}),
                      column_order=["模拟经过小时", "温度℃", "累计工时h", "设备状态", "运行场景", "采样时间"], hide_index=True, width="stretch")
-
-
-def evidence_zip(session):
-    output = io.BytesIO()
-    with get_connection(session.db_path) as connection:
-        connection.execute("BEGIN")
-        tables = {name: pd.read_sql_query(f"SELECT * FROM {name}", connection) for name in
-                  ("equipment", "telemetry", "fault_records", "maintenance_plans", "maintenance_records", "alarm_records", "system_config")}
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        for name, frame in tables.items():
-            archive.writestr(name + ".csv", frame.to_csv(index=False).encode("utf-8-sig"))
-        archive.writestr("session.json", json.dumps(session.info, ensure_ascii=False, indent=2))
-        archive.writestr("数据说明.txt", "课程规则仿真数据，非真实设备测量。时间为UTC；温度℃、工时h、焊接次数为次。每2秒最多推进1模拟小时；快照含零增量初始点和冷却点。")
-    return output.getvalue()
 
 
 def render_design(db_path):
@@ -198,6 +191,13 @@ def render_design(db_path):
     rate, offset = DEMO_PROFILES[DEVICE_ID]
     st.markdown("### 设计目标与软件架构")
     st.write("第11题：自动化焊接设备运维提醒系统方案设计。以一台模拟焊接设备验证运维指标、故障台账、按工时维护排程和信息管理流程。")
+    st.markdown("#### 总体方案选择依据")
+    st.write("本课题选用运行时长规则维护。累计有效运行小时直接连接设备使用过程与维护时机，停机、故障和离线不增加工时；维护完成后按当时累计值重排，能够保留设备历史并清楚验证提前提醒和到期处理。")
+    st.write("课程未提供真实传感器数据、故障寿命标签或硬件样机，因此采用确定性Python模型构建模拟数据，再以阈值与固定周期规则验证管理流程。Python、Streamlit和SQLite分别承担计算、交互和本地持久化，适合单设备课程方案验证；不把这一结果解释为寿命预测或真实焊机控制性能。")
+    st.html('<div class="course-architecture">' + ''.join(
+        f'<div><strong>{title}</strong><small>{detail}</small></div>' for title, detail in (
+            ('输入与工况', '启停、正常与异常'), ('计算与会话', '温度、工时、节点控制'),
+            ('业务服务', '预警、故障、维护'), ('SQLite记录', '七张业务表与事件'), ('网页与证据', '趋势、台账、数据导出'))) + '</div>')
     st.code("Streamlit 管理界面 → 演示会话/运行驱动 → 设备、运行数据、故障、维护、预警服务 → SQLite\nPython 规则仿真 → 运行快照 → 阈值判断 → 提醒、处理及下一维护周期", language=None)
     st.dataframe(pd.DataFrame([
         ["累计运行工时 / h", "维护排程依据", "仅有效运行步骤+1，停机、故障、离线不累计"],
@@ -210,10 +210,61 @@ def render_design(db_path):
     st.code(f"每{STEP_SECONDS:g}秒 → {HOURS_PER_STEP:g}个模拟小时；不追补暂停或服务器停机的时间\nT新 = T当前 + {DEMO_RESPONSE:g} × (T目标 − T当前)\n正常目标 = {warning:g} − {offset:g} = {warning-offset:g}℃；异常目标 = {critical:g} + {DEMO_ANOMALY_MARGIN_C:g} = {critical+DEMO_ANOMALY_MARGIN_C:g}℃；停机向{DEMO_AMBIENT_C:g}℃冷却\n下次维护目标 = 完成维护时的累计工时 + {interval:g}h（累计工时不清零）", language=None)
     st.info("以上温度、周期、产量和时间倍率均为课程演示参数，未经真实设备标定。温度阈值与维护参数来自本轮system_config；这是规则维护提醒，不是寿命预测或真实焊机控制。")
     st.caption("温度达到严重级别时暂停并按同一预警事件自动登记一条温度异常故障；处理后仍超温则确认预警，温度恢复后解除。手动故障入口保留。")
+    st.markdown("### 架构方案与模拟数据集")
+    st.write("本设计采用通知允许的软件架构方案路线。温度、运行增量和焊接增量来自规则模型；设备状态由启停、故障和处理操作改变；维护剩余由目标工时减去累计工时得到。当前没有连接物理传感器，不将模拟字段称为真实测点数据。")
+    st.table(pd.DataFrame([
+        ['模型层', 'simulation/welding_simulator.py', '计算温度、有效工时与焊接增量'],
+        ['会话与控制层', 'website/defense_session.py', '单轮隔离、节拍、节点暂停与结束冻结'],
+        ['业务层', 'services/', '设备、运行快照、预警、故障和维护事务'],
+        ['数据层', 'database/schema.sql', 'equipment、telemetry及故障、维护、预警、配置共七表'],
+        ['界面层', 'app.py与website/defense_page.py', '五页导航、表单、趋势、场景和数据导出'],
+    ], columns=['分层','实现位置','职责']))
+    with get_connection(db_path) as connection:
+        counts = {name:connection.execute('SELECT count(*) FROM '+name).fetchone()[0] for name in
+                  ('equipment','telemetry','fault_records','maintenance_records','alarm_records')}
+    st.write(f"本轮实际数据：设备 {counts['equipment']} 台、运行快照 {counts['telemetry']} 条、故障 {counts['fault_records']} 条、维护记录 {counts['maintenance_records']} 条、预警 {counts['alarm_records']} 条。")
+    st.write("每轮从零工时单独建库，快照包括初始化、有效运行和零增量冷却。结束并冻结本轮后，可下载七表CSV、原始操作事件、数据集说明和课题索引；数据集说明含单位、参数、各表行数、运行增量与累计差核对及数据库完整性结果。")
+    st.markdown("### 课题要求逐项对应")
+    st.caption("下表逐字列出通知中的四项研究重点、六项设计交付要求和五项提交材料。它是实现与证据索引，实际验证结论以运行记录为准。")
+    records=requirement_records()
+    for category in ('研究重点','设计交付要求','最终提交材料'):
+        with st.expander(category+'与证据位置',expanded=category=='研究重点'):
+            st.table(pd.DataFrame([r for r in records if r['类别']==category]).drop(columns=['类别']))
     st.markdown("### 现场验证顺序")
     target = plan["next_maintenance_runtime_hours"]
-    st.write(f"零工时开场 → 启动并观察 → {target-lead:g}h提前提醒 → 继续至{target:g}h到期 → 停机登记维护 → 核对新目标与预警解除 → 再运行；然后登记/处理故障，并演示温度异常及恢复。")
+    st.write(f"正常维护路线：新建零工时轮次 → 开始运行 → {interval-lead:g}h提前提醒并暂停 → 继续至{interval:g}h到期 → 停机登记维护 → 核对累计值保留与新目标。")
+    st.write("温度异常路线：另建零工时轮次 → 选择温度异常 → 观察警告 → 严重节点自动故障并暂停 → 到故障台账保存已处理 → 观察预警已确认 → 停机冷却 → 观察预警解除且工时保持。手动故障登记另在故障台账演示。")
     st.caption(f"本周期目标{target:g}h，提前{lead:g}h提醒；倍率{STEP_SECONDS:g}秒/{HOURS_PER_STEP:g}h。实际受服务器调度影响，提醒节点会暂停供讲解。")
+    st.caption("提交时分别提供说明书、仿真文件、程序源码、界面测试截图和测试工况记录表。公网网址和网页演示是展示入口，不能单独替代这些材料。")
+
+
+def render_frozen_records(page, db_path):
+    """Keep the plan and human-readable ledgers visible after writes are frozen."""
+    if page == '维护排程':
+        plan = get_maintenance_plan(DEVICE_ID, db_path=db_path)
+        section('本轮维护计划', '只读查看当前基准与目标，累计值保留')
+        st.table(pd.DataFrame([
+            ['累计运行工时',f"{plan['total_runtime_hours']:g} h"],
+            ['最近维护基准',f"{plan['last_maintenance_runtime_hours']:g} h"],
+            ['下次维护目标',f"{plan['next_maintenance_runtime_hours']:g} h"],
+            ['维护剩余',f"{plan['remaining_runtime_hours']:g} h"],
+            ['维护状态',plan['maintenance_status']],
+        ],columns=['项目','本轮实际值']))
+        section('本轮维护历史')
+    table = {'维护排程':'maintenance_records','故障台账':'fault_records','预警中心':'alarm_records'}[page]
+    with get_connection(db_path) as connection:frame=pd.read_sql_query('SELECT * FROM '+table+' ORDER BY id',connection)
+    if frame.empty:
+        st.info('本轮暂无对应记录。')
+        return
+    names={'id':'编号','equipment_id':'设备编号','fault_type':'故障类型','level':'等级','description':'原始描述或维护内容',
+           'status':'状态','occurred_at':'发生时间','resolved_at':'完成或解除时间','handling_note':'处理说明',
+           'maintenance_type':'维护类型','runtime_hours':'维护时累计工时h','performed_by':'维护人员','performed_at':'维护时间',
+           'alarm_type':'预警类型','content':'预警内容'}
+    for field in ('occurred_at','resolved_at','performed_at'):
+        if field in frame:frame[field]=pd.to_datetime(frame[field],utc=True).dt.tz_convert('Asia/Shanghai').dt.strftime('%Y-%m-%d %H:%M:%S').fillna('—')
+    frame=frame.drop(columns=['event_key'],errors='ignore').rename(columns=names)
+    st.caption('本轮已冻结，以下记录只读；显示时间为北京时间，原始导出保留UTC。')
+    st.dataframe(frame,hide_index=True,width='stretch')
 
 
 def render_app(business_pages):
@@ -229,6 +280,8 @@ def render_app(business_pages):
                 raise ValueError("演示不存在")
         except ValueError:
             path = create_session(DATA_ROOT)
+            if requested:
+                st.session_state['operation_feedback']='原轮次在当前服务中未找到，已创建新的独立零工时轮次；如需查看旧数据，请使用此前导出的记录。'
         st.session_state.update(defense_session_id=path.parent.name, active_equipment=DEVICE_ID)
         st.query_params.clear()
         st.query_params["demo"] = path.parent.name
@@ -247,6 +300,7 @@ def render_app(business_pages):
         st.button("结束本轮并冻结", key="finish_defense", width="stretch", disabled=session.report()["ended"], on_click=_finish_session, args=(session,))
         st.button("从零开始新一轮", key="new_defense", width="stretch", on_click=_new_session)
         st.caption("刷新保留本轮；离开页面约12秒自动暂停。新一轮保留旧数据，不覆盖原始库。")
+        st.caption('云端记录请结束后下载留存；答辩从首页新建独立轮次。')
     st.html(f'<div class="page-head"><div><div class="eyebrow">自动化焊接设备运维提醒系统方案设计</div><h1>{escape(page)}</h1><div class="page-desc">现场生成运行数据，验证提醒、故障处理与工时维护闭环。</div></div></div>')
     st.caption(f'本轮 {session.db_path.parent.name} · 数据从零开始 · 所有页面使用同一设备、同一数据库')
 
@@ -266,16 +320,10 @@ def render_app(business_pages):
             except ConfigurationError as error:
                 st.error(f"温度配置无效：{error}。请检查system_config；可结束本轮或新建演示。不会补造预警记录。")
         elif report["ended"]:
-            table = {"维护排程": "maintenance_records", "故障台账": "fault_records", "预警中心": "alarm_records"}[page]
-            with get_connection(session.db_path) as connection:
-                frame = pd.read_sql_query(f"SELECT * FROM {table} ORDER BY id", connection)
-            if frame.empty:
-                st.info("本轮暂无对应记录。")
-            else:
-                st.dataframe(frame, hide_index=True, width="stretch")
+            render_frozen_records(page,session.db_path)
         else:
             business_pages[page](session.db_path)
         if report["ended"]:
             st.download_button("下载本轮数据与操作记录", data=evidence_zip(session), file_name=session.db_path.parent.name + ".zip", mime="application/zip")
     live()
-    st.html('<div class="footer"><span>单设备课程仿真 · 运维指标 / 故障台账 / 工时维护排程</span><span>原始数据与旧演示完整保留</span></div>')
+    st.html(f'<div class="footer"><span>单设备课程仿真 · 运维指标 / 故障台账 / 工时维护排程</span><span>课程验收版 {COURSE_VERSION} · 各轮独立保存</span></div>')

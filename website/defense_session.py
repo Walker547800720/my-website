@@ -77,7 +77,12 @@ class DefenseSession:
         self._thread = None
         self.info = read_info(self.db_path)
         # Reopening/restarting never resumes calculation automatically.
-        self.manager.get_model(DEVICE_ID)
+        model = self.manager.get_model(DEVICE_ID)
+        # Recover the last explicitly selected scenario, while remaining paused.
+        for event in reversed(self.info['events']):
+            if event['action'] in ('start', 'set_mode') and event.get('mode') in ('normal', 'temperature_anomaly'):
+                model.set_mode(event['mode'])
+                break
         if not self.info["ended"]:
             self.info["reason"] = "尚未开始" if not self.info["events"] else "演示已暂停，可继续运行"
 
@@ -154,6 +159,7 @@ class DefenseSession:
             before = self.manager.get_report(DEVICE_ID)["last_snapshot"]
             report = self.manager.step(DEVICE_ID)
             result = report["last_result"]
+            temperature_hold_reason = None
             # Also retry a failed linkage on a paused tick; never resubmit telemetry.
             for alarm in (result or {}).get("alarms") or []:
                 handled = self.info.setdefault("critical_events", [])
@@ -163,10 +169,12 @@ class DefenseSession:
                     if fault is not None:
                         handled.append(alarm["event_key"])
                         self.info["reason"] = f"严重温度预警：已暂停并自动登记故障#{fault['id']}，请到故障台账处理"
+                        temperature_hold_reason = self.info['reason']
                         self._event("temperature_hold", alarm_id=alarm["id"], fault_id=fault["id"])
             sample = report["last_snapshot"]
-            if sample is None or (before and sample["id"] == before["id"]):
+            if sample is None:
                 return
+            new_sample = before is None or sample['id'] != before['id']
             if result:
                 plan = result["maintenance"]
                 # Hold each maintenance threshold once per cycle for explanation.
@@ -175,8 +183,11 @@ class DefenseSession:
                 if state != "正常" and boundary not in self.info["boundaries"]:
                     self.info["boundaries"].append(boundary)
                     model.pause()
-                    self.info["reason"] = f"{state}：已暂停，讲解后可继续或停机维护"
+                    self.info["reason"] = (temperature_hold_reason + f"；同时{state}，请先处理故障，再停机登记维护。"
+                                           if temperature_hold_reason else f"{state}：已暂停，讲解后可继续或停机维护")
                     self._event("maintenance_hold", sample_id=sample["id"], state=state)
+            if not new_sample:
+                return
             if sample["status"] != "运行中" and abs(sample["temperature_c"] - 25.0) < 0.1:
                 model.pause()
                 self.info["reason"] = "冷却已接近环境温度，自动暂停"
